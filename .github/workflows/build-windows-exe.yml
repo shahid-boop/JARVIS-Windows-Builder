@@ -1,0 +1,72 @@
+
+name: Build JARVIS Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Extract project ZIP
+        shell: pwsh
+        run: |
+          $zip = "repo/JARVIS-OptiPlex-7060-GitHub-Actions-Windows-EXE.zip"
+          if (!(Test-Path $zip)) {
+            throw "ZIP file not found in repository root."
+          }
+          Expand-Archive -LiteralPath $zip -DestinationPath "repo/source" -Force
+
+      - name: Find PC companion source
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem "repo/source" -Filter "jarvis_pc_server.py" -Recurse |
+            Select-Object -First 1
+          if (!$file) {
+            throw "jarvis_pc_server.py was not found inside the ZIP."
+          }
+          $dir = $file.Directory.FullName
+          "PC_SOURCE=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Found source at $dir"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if (Test-Path "$env:PC_SOURCE/requirements.txt") {
+            pip install -r "$env:PC_SOURCE/requirements.txt"
+          }
+          pip install pyinstaller
+
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          Set-Location $env:PC_SOURCE
+          pyinstaller --noconfirm --clean --onefile --name JARVIS-PC jarvis_pc_server.py
+          if (!(Test-Path "dist/JARVIS-PC.exe")) {
+            throw "EXE build output was not created."
+          }
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-Windows-EXE
+          path: ${{ env.PC_SOURCE }}/dist/JARVIS-PC.exe
+          if-no-files-found: error
